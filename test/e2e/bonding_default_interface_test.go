@@ -62,19 +62,22 @@ var _ = Describe("NodeNetworkConfigurationPolicy bonding default interface", fun
 				By(fmt.Sprintf("Fetching current IP address %s", address))
 				addressByNode[node] = address
 			}
+			By(fmt.Sprintf("Reseting state of %s", *firstSecondaryNic))
 			resetNicStateForNodes(*firstSecondaryNic)
-			By("Creating bond1 on eth0 and eth1")
+			By(fmt.Sprintf("Creating %s on %s and %s", bond1, *primaryNic, *firstSecondaryNic))
 			updateDesiredState(bondUpWithEth0AndEth1(bond1))
 			waitForAvailableTestPolicy()
+			By("Done BeforeEch stage")
 
 		})
 		AfterEach(func() {
-			By(fmt.Sprintf("Removing bond1 and configuring %s with dhcp", *primaryNic))
+			By(fmt.Sprintf("Removing bond %s and configuring %s with dhcp", bond1, *primaryNic))
 			updateDesiredState(bondAbsentWithEth0Up(bond1))
 			waitForAvailableTestPolicy()
 
 			By("Waiting until the node becomes ready again")
 			for _, node := range nodes {
+
 				interfacesNameForNodeEventually(node).ShouldNot(ContainElement(bond1))
 			}
 
@@ -111,24 +114,24 @@ var _ = Describe("NodeNetworkConfigurationPolicy bonding default interface", fun
 					return ipv4Address(node, bond1)
 				}, 30*time.Second, 1*time.Second).Should(Equal(addressByNode[node]), fmt.Sprintf("Interface bond1 has not take over the %s address", *primaryNic))
 			}
-			By("Reboot node and verify that bond still has ip of primary nic")
-			for _, node := range nodes {
-				err := restartNode(node)
-				Expect(err).ToNot(HaveOccurred())
-				By(fmt.Sprintf("Node %s was rebooted, verifying %s exists and ip was not changed", node, bond1))
-				interfacesForNode(node).Should(ContainElement(SatisfyAll(
-					HaveKeyWithValue("name", expectedBond["name"]),
-					HaveKeyWithValue("type", expectedBond["type"]),
-					HaveKeyWithValue("state", expectedBond["state"]),
-					HaveKeyWithValue("link-aggregation", HaveKeyWithValue("mode", expectedSpecs["mode"])),
-					HaveKeyWithValue("link-aggregation", HaveKeyWithValue("options", expectedSpecs["options"])),
-					HaveKeyWithValue("link-aggregation", HaveKeyWithValue("slaves", ConsistOf([]string{*primaryNic, *firstSecondaryNic}))),
-				)))
+			// Restart only first node that it master if other node is restarted it will stuck in NotReady state
+			nodeToReboot := nodes[0]
+			By(fmt.Sprintf("Reboot node %s and verify that bond still has ip of primary nic", nodeToReboot))
+			err := restartNode(nodeToReboot)
+			Expect(err).ToNot(HaveOccurred())
+			By(fmt.Sprintf("Node %s was rebooted, verifying %s exists and ip was not changed", nodeToReboot, bond1))
+			interfacesForNode(nodeToReboot).Should(ContainElement(SatisfyAll(
+				HaveKeyWithValue("name", expectedBond["name"]),
+				HaveKeyWithValue("type", expectedBond["type"]),
+				HaveKeyWithValue("state", expectedBond["state"]),
+				HaveKeyWithValue("link-aggregation", HaveKeyWithValue("mode", expectedSpecs["mode"])),
+				HaveKeyWithValue("link-aggregation", HaveKeyWithValue("options", expectedSpecs["options"])),
+				HaveKeyWithValue("link-aggregation", HaveKeyWithValue("slaves", ConsistOf([]string{*primaryNic, *firstSecondaryNic}))),
+			)))
 
-				Eventually(func() string {
-					return ipv4Address(node, bond1)
-				}, 30*time.Second, 1*time.Second).Should(Equal(addressByNode[node]), fmt.Sprintf("Interface bond1 has not take over the %s address", *primaryNic))
-			}
+			Eventually(func() string {
+				return ipv4Address(nodeToReboot, bond1)
+			}, 30*time.Second, 1*time.Second).Should(Equal(addressByNode[nodeToReboot]), fmt.Sprintf("Interface bond1 has not take over the %s address", *primaryNic))
 		})
 	})
 })
