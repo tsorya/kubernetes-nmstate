@@ -75,6 +75,27 @@ func writePodsLogs(namespace string, sinceTime time.Time, writer io.Writer) erro
 	return nil
 }
 
+func printDeviceStatus(node string) {
+	// results will be printed by runAtNode
+	_, err := runAtNode(node, "nmcli", "c", "s")
+	Expect(err).ToNot(HaveOccurred())
+	// GinkgoWriter.Write([]byte(fmt.Sprintf("Connection status \n %s", output)))
+
+	_, err = runAtNode(node, "nmcli", "d", "s")
+	Expect(err).ToNot(HaveOccurred())
+	// GinkgoWriter.Write([]byte(fmt.Sprintf("Device status \n %s", output)))
+
+	_, err = runAtNode(node, "/usr/sbin/ip", "-4", "-o", "a")
+	Expect(err).ToNot(HaveOccurred())
+	// GinkgoWriter.Write([]byte(fmt.Sprintf("Configured ipv4 ips on devices \n %s", output)))
+}
+
+func printNetworkManagerLogs(node string){
+	output, err := runAtNode(node, "sudo", "journalctl", "-u", "NetworkManager")
+	Expect(err).ToNot(HaveOccurred())
+	GinkgoWriter.Write([]byte(fmt.Sprintf("Journalctl for net manager \n %s", output)))
+}
+
 func interfacesName(interfaces []interface{}) []string {
 	var names []string
 	for _, iface := range interfaces {

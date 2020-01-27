@@ -62,8 +62,15 @@ var _ = BeforeEach(func() {
 	bridge1 = nextBridge()
 	_, namespace = prepare(t)
 	startTime = time.Now()
+	for _, node := range nodes {
+		printDeviceStatus(node)
+	}
 })
 
 var _ = AfterEach(func() {
 	writePodsLogs(namespace, startTime, GinkgoWriter)
+	for _, node := range nodes {
+		printDeviceStatus(node)
+		printNetworkManagerLogs(node)
+	}
 })
