@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"flag"
+	"io"
 	"testing"
 	"time"
 
@@ -17,6 +18,9 @@ import (
 	apis "github.com/nmstate/kubernetes-nmstate/pkg/apis"
 	nmstatev1alpha1 "github.com/nmstate/kubernetes-nmstate/pkg/apis/nmstate/v1alpha1"
 )
+
+var NetManagerLogFile io.ReadWriteCloser
+var PodLogFile io.Writer
 
 var (
 	f                  = framework.Global
@@ -58,12 +62,21 @@ func TestE2E(tapi *testing.T) {
 }
 
 var _ = BeforeEach(func() {
+
 	bond1 = nextBond()
 	bridge1 = nextBridge()
 	_, namespace = prepare(t)
 	startTime = time.Now()
+	for _, node := range nodes{
+		printDeviceStatus(node)
+	}
+
 })
 
 var _ = AfterEach(func() {
-	writePodsLogs(namespace, startTime, GinkgoWriter)
+	writePodsLogs(namespace, startTime, CurrentGinkgoTestDescription().Failed)
+	for _, node := range nodes{
+		printDeviceStatus(node)
+		writeNetworkManagerLogs(node, 10 + int(CurrentGinkgoTestDescription().Duration.Seconds()))
+	}
 })
