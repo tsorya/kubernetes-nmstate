@@ -22,6 +22,7 @@ COPY build/_output/bin/kubernetes-nmstate ${OPERATOR}
 
 COPY build/bin /usr/local/bin
 RUN  /usr/local/bin/user_setup
+RUN mkdir -p /etc/config
 
 ENTRYPOINT ["/usr/local/bin/entrypoint"]
 
