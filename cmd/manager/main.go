@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/nmstate/kubernetes-nmstate/pkg/apis"
+	"github.com/nmstate/kubernetes-nmstate/pkg/configurations"
 	"github.com/nmstate/kubernetes-nmstate/pkg/controller"
 	"github.com/nmstate/kubernetes-nmstate/pkg/webhook"
 	"github.com/nmstate/kubernetes-nmstate/version"
@@ -91,6 +92,13 @@ func main() {
 	namespace, err := k8sutil.GetWatchNamespace()
 	if err != nil {
 		log.Error(err, "Failed to get watch namespace")
+		os.Exit(1)
+	}
+
+	// Start configuration watcher
+	configWatcher := configurations.NewConfigWatcher()
+	if err := configWatcher.Start(); err != nil {
+		log.Error(err, "Failing to start configuration watcher")
 		os.Exit(1)
 	}
 

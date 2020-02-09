@@ -5,6 +5,7 @@ go 1.13.7
 require (
 	github.com/aktau/github-release v0.7.2
 	github.com/evanphx/json-patch v4.5.0+incompatible
+	github.com/fsnotify/fsnotify v1.4.7
 	github.com/go-logr/logr v0.1.0
 	github.com/go-openapi/spec v0.19.4
 	github.com/gobwas/glob v0.2.3
@@ -16,6 +17,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/qinqon/kube-admission-webhook v0.4.0
 	github.com/spf13/pflag v1.0.5
+	github.com/spf13/viper v1.4.0
+	github.com/thoas/go-funk v0.5.0
 	github.com/tidwall/gjson v1.4.0
 	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0
