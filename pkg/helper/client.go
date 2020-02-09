@@ -5,11 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/pkg/errors"
 
@@ -19,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	yaml "sigs.k8s.io/yaml"
 
@@ -38,16 +38,14 @@ const vlanFilteringCommand = "vlan-filtering"
 const defaultGwRetrieveTimeout = 120 * time.Second
 const defaultGwProbeTimeout = 120 * time.Second
 const apiServerProbeTimeout = 120 * time.Second
+const defaultInterfacesFilter = "veth*"
 
 var (
 	interfacesFilterGlob glob.Glob
 )
 
-func init() {
-	interfacesFilter, isSet := os.LookupEnv("INTERFACES_FILTER")
-	if !isSet {
-		panic("INTERFACES_FILTER is mandatory")
-	}
+func SetInterfacesFilter(interfacesFilter string) {
+	log.Info(fmt.Sprintf("Initializing client with filter = %s", interfacesFilter))
 	interfacesFilterGlob = glob.MustCompile(interfacesFilter)
 }
 

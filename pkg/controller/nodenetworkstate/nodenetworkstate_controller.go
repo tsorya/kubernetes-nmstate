@@ -3,7 +3,6 @@ package nodenetworkstate
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
@@ -29,11 +28,8 @@ var (
 	nodenetworkstateRefresh time.Duration
 )
 
-func init() {
-	refreshTime, isSet := os.LookupEnv("NODE_NETWORK_STATE_REFRESH_INTERVAL")
-	if !isSet {
-		panic("NODE_NETWORK_STATE_REFRESH_INTERVAL is mandatory")
-	}
+func SetNodeNetworkStateRefreshValue(refreshTime string) {
+	log.Info(fmt.Sprintf("Initializng node network controller with refresh time = %s", refreshTime))
 	intRefreshTime, err := strconv.Atoi(refreshTime)
 	if err != nil {
 		panic(fmt.Sprintf("Failed while converting evnironment variable to int: %v", err))
