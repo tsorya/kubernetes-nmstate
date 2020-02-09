@@ -8,5 +8,6 @@ RUN dnf install -y dnf-plugins-core && \
 
 COPY build/_output/bin/kubernetes-nmstate /usr/local/bin/kubernetes-nmstate
 COPY build/bin /usr/local/bin
+RUN mkdir -p /etc/config
 
 ENTRYPOINT ["kubernetes-nmstate"]
