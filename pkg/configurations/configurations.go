@@ -8,16 +8,14 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/nmstate/kubernetes-nmstate/pkg/helper"
 	"github.com/thoas/go-funk"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 
-	nnscontroller "github.com/nmstate/kubernetes-nmstate/pkg/controller/nodenetworkstate"
 	"github.com/spf13/viper"
 )
 
 const defaultInterfacesFilter = "veth*"
-const defaultNodeNetworkStateRefresh = "5"
+const defaultNodeNetworkStateRefresh = 5
 
 var (
 	log        = logf.Log.WithName("configurations")
@@ -35,7 +33,7 @@ func init() {
 
 // Struct to match config file
 type Config struct {
-	NodeNetworkRefreshInterval string `mapstructure:"node_network_state_refresh_interval"`
+	NodeNetworkRefreshInterval int    `mapstructure:"node_network_state_refresh_interval"`
 	InterfaceFilter            string `mapstructure:"interfaces_filter"`
 }
 
@@ -45,20 +43,21 @@ var c = &Config{
 	InterfaceFilter:            defaultInterfacesFilter,
 }
 
+func GetCurrentConfig() Config {
+	return *c
+}
+
 var v = viper.New()
 
 // Updating relevant values with new config settings
 func (c *Config) updateConfig(v viper.Viper) {
+	log.Info("Updating configuration")
 	err := v.Unmarshal(&c)
+	log.Info(fmt.Sprintf("New configuration is %+v", c))
 	if err != nil {
 		log.Error(err, "Failed to unmarshal config file")
 		return
 	}
-	log.Info("Updating configs")
-	// Initializing client with new filter if not set in config will use default
-	helper.SetInterfacesFilter(c.InterfaceFilter)
-	// Initializing node state controller with new refresh interval
-	nnscontroller.SetNodeNetworkStateRefreshValue(c.NodeNetworkRefreshInterval)
 }
 
 func exists(path string) bool {

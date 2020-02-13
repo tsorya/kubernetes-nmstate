@@ -2,10 +2,9 @@ package nodenetworkstate
 
 import (
 	"context"
-	"fmt"
-	"strconv"
-	"sync"
 	"time"
+
+	"github.com/nmstate/kubernetes-nmstate/pkg/configurations"
 
 	nmstatev1alpha1 "github.com/nmstate/kubernetes-nmstate/pkg/apis/nmstate/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -24,22 +23,7 @@ import (
 	nmstate "github.com/nmstate/kubernetes-nmstate/pkg/helper"
 )
 
-var (
-	log                     = logf.Log.WithName("controller_nodenetworkstate")
-	nodenetworkstateRefresh time.Duration
-	setMutex                = &sync.Mutex{}
-)
-
-func SetNodeNetworkStateRefreshValue(refreshTime string) {
-	setMutex.Lock()
-	log.Info(fmt.Sprintf("Initializng node network controller with refresh time = %s", refreshTime))
-	intRefreshTime, err := strconv.Atoi(refreshTime)
-	if err != nil {
-		panic(fmt.Sprintf("Failed while converting evnironment variable to int: %v", err))
-	}
-	nodenetworkstateRefresh = time.Duration(intRefreshTime) * time.Second
-	setMutex.Unlock()
-}
+var log = logf.Log.WithName("controller_nodenetworkstate")
 
 // Add creates a new NodeNetworkState Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
@@ -128,5 +112,6 @@ func (r *ReconcileNodeNetworkState) Reconcile(request reconcile.Request) (reconc
 		}
 		return reconcile.Result{}, err
 	}
+	nodenetworkstateRefresh := time.Duration(configurations.GetCurrentConfig().NodeNetworkRefreshInterval) * time.Second
 	return reconcile.Result{RequeueAfter: nodenetworkstateRefresh}, nil
 }
