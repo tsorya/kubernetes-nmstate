@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -38,15 +39,17 @@ const vlanFilteringCommand = "vlan-filtering"
 const defaultGwRetrieveTimeout = 120 * time.Second
 const defaultGwProbeTimeout = 120 * time.Second
 const apiServerProbeTimeout = 120 * time.Second
-const defaultInterfacesFilter = "veth*"
 
 var (
+	setMutex             = &sync.Mutex{}
 	interfacesFilterGlob glob.Glob
 )
 
 func SetInterfacesFilter(interfacesFilter string) {
+	setMutex.Lock()
 	log.Info(fmt.Sprintf("Initializing client with filter = %s", interfacesFilter))
 	interfacesFilterGlob = glob.MustCompile(interfacesFilter)
+	setMutex.Unlock()
 }
 
 func show(arguments ...string) (string, error) {

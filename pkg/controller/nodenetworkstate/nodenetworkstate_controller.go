@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	nmstatev1alpha1 "github.com/nmstate/kubernetes-nmstate/pkg/apis/nmstate/v1alpha1"
@@ -26,15 +27,18 @@ import (
 var (
 	log                     = logf.Log.WithName("controller_nodenetworkstate")
 	nodenetworkstateRefresh time.Duration
+	setMutex                = &sync.Mutex{}
 )
 
 func SetNodeNetworkStateRefreshValue(refreshTime string) {
+	setMutex.Lock()
 	log.Info(fmt.Sprintf("Initializng node network controller with refresh time = %s", refreshTime))
 	intRefreshTime, err := strconv.Atoi(refreshTime)
 	if err != nil {
 		panic(fmt.Sprintf("Failed while converting evnironment variable to int: %v", err))
 	}
 	nodenetworkstateRefresh = time.Duration(intRefreshTime) * time.Second
+	setMutex.Unlock()
 }
 
 // Add creates a new NodeNetworkState Controller and adds it to the Manager. The Manager will set fields on the Controller
