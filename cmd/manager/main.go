@@ -96,7 +96,8 @@ func main() {
 	}
 
 	// Start configuration watcher
-	if err := configurations.ConfigWatcher(); err != nil {
+	configWatcher := configurations.NewConfigWatcher()
+	if err := configWatcher.Start(); err != nil {
 		log.Error(err, "Failing to start configuration watcher")
 		os.Exit(1)
 	}

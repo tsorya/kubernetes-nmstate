@@ -142,6 +142,7 @@ func UpdateCurrentState(client client.Client, nodeNetworkState *nmstatev1alpha1.
 		return fmt.Errorf("error running nmstatectl show: %v", err)
 	}
 	observedState := nmstatev1alpha1.State{Raw: []byte(observedStateRaw)}
+	fmt.Println("qaaaaaaaaaaaaaaa ", configurations.GetCurrentConfig().InterfaceFilter)
 	interfacesFilterGlob := glob.MustCompile(configurations.GetCurrentConfig().InterfaceFilter)
 	stateToReport, err := filterOut(observedState, interfacesFilterGlob)
 	if err != nil {

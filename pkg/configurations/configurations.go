@@ -18,41 +18,48 @@ const defaultInterfacesFilter = "veth*"
 const defaultNodeNetworkStateRefresh = 5
 
 var (
-	log        = logf.Log.WithName("configurations")
-	configPath string
+	log   = logf.Log.WithName("configurations")
+	mutex = sync.Mutex{}
 )
 
-// Takes os environment values
-func init() {
-	configPathTemp, isSet := os.LookupEnv("CONFIG_PATH")
-	if !isSet {
-		panic("CONFIG_PATH is mandatory")
-	}
-	configPath = configPathTemp
-}
-
 // Struct to match config file
-type Config struct {
+type config struct {
 	NodeNetworkRefreshInterval int    `mapstructure:"node_network_state_refresh_interval"`
 	InterfaceFilter            string `mapstructure:"interfaces_filter"`
 }
 
-// Init defaults
-var c = &Config{
+var c = config{
 	NodeNetworkRefreshInterval: defaultNodeNetworkStateRefresh,
 	InterfaceFilter:            defaultInterfacesFilter,
 }
 
-func GetCurrentConfig() Config {
-	return *c
+type configWatcher struct {
+	configPath string
+	v          *viper.Viper
 }
 
-var v = viper.New()
+func NewConfigWatcher() *configWatcher {
+	configPathTemp, isSet := os.LookupEnv("CONFIG_PATH")
+	if !isSet {
+		panic("CONFIG_PATH is mandatory")
+	}
+	cw := configWatcher{
+		configPath: configPathTemp,
+	}
+	cw.v = viper.New()
+	return &cw
+}
+
+func GetCurrentConfig() config {
+	return c
+}
 
 // Updating relevant values with new config settings
-func (c *Config) updateConfig(v viper.Viper) {
+func setConfig(v viper.Viper) {
+	mutex.Lock()
 	log.Info("Updating configuration")
 	err := v.Unmarshal(&c)
+	mutex.Unlock()
 	log.Info(fmt.Sprintf("New configuration is %+v", c))
 	if err != nil {
 		log.Error(err, "Failed to unmarshal config file")
@@ -60,7 +67,7 @@ func (c *Config) updateConfig(v viper.Viper) {
 	}
 }
 
-func exists(path string) bool {
+func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	if err == nil {
 		return true
@@ -71,87 +78,78 @@ func exists(path string) bool {
 	return true
 }
 
-func ConfigWatcher() error {
-
-	ext := filepath.Ext(configPath)
+// This function reads current config file if it is exists.
+// If file exists it will update config values with values from it.
+// If not it will update config with default values
+// And after that it starts configuration watcher go routine
+func (c *configWatcher) Start() error {
+	ext := filepath.Ext(c.configPath)
 	if !funk.Contains(viper.SupportedExts, ext[1:]) {
 		return fmt.Errorf("file extension %s is not supported", ext)
 	}
 
-	configDir, _ := filepath.Split(configPath)
-	if !exists(configDir) {
+	configDir, _ := filepath.Split(c.configPath)
+	if !pathExists(configDir) {
 		return fmt.Errorf("folder %s doesn't exist, can't start configuration watcher", configDir)
 	}
 
-	v.SetConfigFile(configPath)
-	v.SetTypeByDefaultValue(true)
+	c.v.SetConfigFile(c.configPath)
+	c.v.SetTypeByDefaultValue(true)
 
-	if err := v.ReadInConfig(); err != nil { // Find and read the config file
+	if err := c.v.ReadInConfig(); err != nil { // Find and read the config file
 		log.Info("Not able to read configuration, will update default values")
 	}
 
-	c.updateConfig(*v)
-	WatchConfig(v, configPath)
+	setConfig(*c.v)
+	watchConfigFile(c.v, c.configPath)
 	return nil
 }
 
-//Adapted from viper WatchConfig to match nmstate configmap watch needs
-//The main changes is that there is no need to
-//preexist config file before starting the watch
-//and it will not exit on file deletion
-func WatchConfig(v *viper.Viper, fullFilePath string) {
-	initWG := sync.WaitGroup{}
-	initWG.Add(1)
+// Adapted from viper WatchConfig to match nmstate configmap watch needs
+// The main changes is that there is no need to
+// preexist config file before starting the watch
+// and it will not exit on file deletion
+func watchConfigFile(v *viper.Viper, fullFilePath string) {
+	newWatcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Error(err, "Failed to start fsnotify watcher")
+		return
+	}
+	defer newWatcher.Close()
+
+	configFile := filepath.Clean(fullFilePath)
+	configDir, _ := filepath.Split(configFile)
+	realConfigFile, _ := filepath.EvalSymlinks(fullFilePath)
 	go func() {
-		newWatcher, err := fsnotify.NewWatcher()
-		if err != nil {
-			log.Error(err, "Failed to start fsnotify watcher")
-			return
-		}
-		defer newWatcher.Close()
-
-		configFile := filepath.Clean(fullFilePath)
-		configDir, _ := filepath.Split(configFile)
-		realConfigFile, _ := filepath.EvalSymlinks(fullFilePath)
-
-		eventsWG := sync.WaitGroup{}
-		eventsWG.Add(1)
-		go func() {
-			for {
-				select {
-				case event, ok := <-newWatcher.Events:
-					if !ok { // 'Events' channel is closed
-						eventsWG.Done()
-						return
-					}
-					currentConfigFile, _ := filepath.EvalSymlinks(fullFilePath)
-					// we only care about the config file with the following cases:
-					// 1 - if the config file was modified or created
-					// 2 - if the real path to the config file changed (eg: k8s ConfigMap replacement)
-					const writeOrCreateMask = fsnotify.Write | fsnotify.Create
-					if (filepath.Clean(event.Name) == configFile &&
-						event.Op&writeOrCreateMask != 0) ||
-						(currentConfigFile != "" && currentConfigFile != realConfigFile) {
-						realConfigFile = currentConfigFile
-						err := v.ReadInConfig()
-						if err != nil {
-							log.Error(err, "error reading config file.\n")
-						} else {
-							c.updateConfig(*v)
-						}
-					}
-				case err, ok := <-newWatcher.Errors:
-					if ok { // 'Errors' channel is not closed
-						log.Error(err, "newWatcher error\n")
-					}
-					eventsWG.Done()
+		for {
+			select {
+			case event, ok := <-newWatcher.Events:
+				if !ok { // 'Events' channel is closed
 					return
 				}
+				currentConfigFile, _ := filepath.EvalSymlinks(fullFilePath)
+				// we only care about the config file with the following cases:
+				// 1 - if the config file was modified or created
+				// 2 - if the real path to the config file changed (eg: k8s ConfigMap replacement)
+				const writeOrCreateMask = fsnotify.Write | fsnotify.Create
+				if (filepath.Clean(event.Name) == configFile &&
+					event.Op&writeOrCreateMask != 0) ||
+					(currentConfigFile != "" && currentConfigFile != realConfigFile) {
+					realConfigFile = currentConfigFile
+					err := v.ReadInConfig()
+					if err != nil {
+						log.Error(err, "error reading config file.\n")
+					} else {
+						setConfig(*v)
+					}
+				}
+			case err, ok := <-newWatcher.Errors:
+				if ok { // 'Errors' channel is not closed
+					log.Error(err, "newWatcher error\n")
+				}
+				return
 			}
-		}()
-		newWatcher.Add(configDir)
-		initWG.Done()   // done initalizing the watch in this go routine, so the parent routine can move on...
-		eventsWG.Wait() // now, wait for event loop to end in this go-routine...
+		}
 	}()
-	initWG.Wait() // make sure that the go routine above fully ended before returning
+	newWatcher.Add(configDir)
 }
