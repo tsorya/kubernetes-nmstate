@@ -114,57 +114,46 @@ func (c *configWatcher) Start() error {
 // preexist config file before starting the watch
 // and it will not exit on file deletion
 func (c *configWatcher) watchConfigFile() {
-	initWG := sync.WaitGroup{}
-	initWG.Add(1)
 	configFile := filepath.Clean(c.configPath)
 	configDir, _ := filepath.Split(configFile)
 	realConfigFile, _ := filepath.EvalSymlinks(c.configPath)
-	go func() {
-		newWatcher, err := fsnotify.NewWatcher()
-		if err != nil {
-			log.Error(err, "Failed to start fsnotify watcher")
-			return
-		}
-		defer newWatcher.Close()
+	newWatcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Error(err, "Failed to start fsnotify watcher")
+		return
+	}
+	newWatcher.Add(configDir)
 
-		eventsWG := sync.WaitGroup{}
-		eventsWG.Add(1)
-		go func() {
-			for {
-				select {
-				case event, ok := <-newWatcher.Events:
-					if !ok { // 'Events' channel is closed
-						eventsWG.Done()
-						return
-					}
-					currentConfigFile, _ := filepath.EvalSymlinks(c.configPath)
-					// we only care about the config file with the following cases:
-					// 1 - if the config file was modified or created
-					// 2 - if the real path to the config file changed (eg: k8s ConfigMap replacement)
-					const writeOrCreateMask = fsnotify.Write | fsnotify.Create
-					if (filepath.Clean(event.Name) == configFile &&
-						event.Op&writeOrCreateMask != 0) ||
-						(currentConfigFile != "" && currentConfigFile != realConfigFile) {
-						realConfigFile = currentConfigFile
-						err := c.v.ReadInConfig()
-						if err != nil {
-							log.Error(err, "error reading config file.\n")
-						} else {
-							setConfig(*c.v)
-						}
-					}
-				case err, ok := <-newWatcher.Errors:
-					if ok { // 'Errors' channel is not closed
-						log.Error(err, "newWatcher error\n")
-					}
-					eventsWG.Done()
+	go func() {
+		defer newWatcher.Close()
+		for {
+			select {
+			case event, ok := <-newWatcher.Events:
+				if !ok { // 'Events' channel is closed
 					return
 				}
+				currentConfigFile, _ := filepath.EvalSymlinks(c.configPath)
+				// we only care about the config file with the following cases:
+				// 1 - if the config file was modified or created
+				// 2 - if the real path to the config file changed (eg: k8s ConfigMap replacement)
+				const writeOrCreateMask = fsnotify.Write | fsnotify.Create
+				if (filepath.Clean(event.Name) == configFile &&
+					event.Op&writeOrCreateMask != 0) ||
+					(currentConfigFile != "" && currentConfigFile != realConfigFile) {
+					realConfigFile = currentConfigFile
+					err := c.v.ReadInConfig()
+					if err != nil {
+						log.Error(err, "error reading config file.\n")
+					} else {
+						setConfig(*c.v)
+					}
+				}
+			case err, ok := <-newWatcher.Errors:
+				if ok { // 'Errors' channel is not closed
+					log.Error(err, "newWatcher error\n")
+				}
+				return
 			}
-		}()
-		newWatcher.Add(configDir)
-		initWG.Done()   // done initalizing the watch in this go routine, so the parent routine can move on...
-		eventsWG.Wait() // now, wait for event loop to end in this go-routine...
+		}
 	}()
-	initWG.Wait() // make sure that the go routine above fully ended before returning
 }
