@@ -6,11 +6,10 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/thoas/go-funk"
+
 	"github.com/gobwas/glob"
 
-	"github.com/fsnotify/fsnotify"
-
-	"github.com/thoas/go-funk"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 
 	"github.com/spf13/viper"
@@ -25,50 +24,113 @@ var (
 )
 
 // Struct to match config file
-type config struct {
+type configParams struct {
 	NodeNetworkRefreshInterval int    `mapstructure:"node_network_state_refresh_interval"`
 	InterfaceFilter            string `mapstructure:"interfaces_filter"`
 	InterfacesFilterGlob       glob.Glob
 }
 
-var c = config{
-	NodeNetworkRefreshInterval: defaultNodeNetworkStateRefresh,
-	InterfaceFilter:            defaultInterfacesFilter,
+type config struct {
+	configPath   string
+	v            *viper.Viper
+	configParams configParams
+	initialized  bool
 }
 
-type configWatcher struct {
-	configPath string
-	v          *viper.Viper
-}
-
-func NewConfigWatcher() *configWatcher {
+func newConfig() (*config, error) {
 	configPathTemp, isSet := os.LookupEnv("CONFIG_PATH")
 	if !isSet {
-		panic("CONFIG_PATH is mandatory")
+		return nil, fmt.Errorf("CONFIG_PATH is mandatory")
 	}
-	cw := configWatcher{
-		configPath: configPathTemp,
+
+	configDir, _ := filepath.Split(configPathTemp)
+	if !pathExists(configDir) {
+		return nil, fmt.Errorf("folder %s doesn't exist, can't start configuration watcher", configDir)
 	}
-	cw.v = viper.New()
-	return &cw
+
+	ext := filepath.Ext(configPathTemp)
+	if !funk.Contains(viper.SupportedExts, ext[1:]) {
+		return nil, fmt.Errorf("file extension %s is not supported", ext)
+	}
+
+	c := config{
+		configPath:  configPathTemp,
+		initialized: true,
+		configParams: configParams{
+			NodeNetworkRefreshInterval: defaultNodeNetworkStateRefresh,
+			InterfaceFilter:            defaultInterfacesFilter,
+			InterfacesFilterGlob:       glob.MustCompile(defaultInterfacesFilter),
+		},
+	}
+
+	c.v = viper.New()
+	c.v.SetConfigFile(c.configPath)
+	c.v.SetTypeByDefaultValue(true)
+
+	return &c, nil
 }
 
-func GetCurrentConfig() config {
-	return c
+var globalConfig config
+
+func CreateGlobalConfig() error {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if globalConfig.initialized {
+		return nil
+	}
+	conf, err := newConfig()
+	if err != nil {
+		return err
+	}
+	globalConfig = *conf
+	return nil
+}
+
+func GetConfigPath() string {
+	return globalConfig.configPath
+}
+
+func GetCurrentConfig() configParams {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return globalConfig.configParams
+}
+
+func GetIntervalRefresh() int {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return globalConfig.configParams.NodeNetworkRefreshInterval
+}
+
+func GetInterfacesFilterGlob() glob.Glob {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return globalConfig.configParams.InterfacesFilterGlob
 }
 
 // Updating relevant values with new config settings
-func setConfig(v viper.Viper) {
-	mutex.Lock()
-	log.Info("Updating configuration")
-	err := v.Unmarshal(&c)
-	c.InterfacesFilterGlob = glob.MustCompile(c.InterfaceFilter)
-	mutex.Unlock()
-	log.Info(fmt.Sprintf("New configuration is %+v", c))
-	if err != nil {
-		log.Error(err, "Failed to unmarshal config file")
+func SetConfig() {
+	if globalConfig.initialized == false {
+		log.Info("Config is not initialized, can't set values")
 		return
 	}
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if err := globalConfig.v.ReadInConfig(); err != nil { // Find and read the config file
+		log.Info("Not able to read configuration, will update default values")
+	}
+
+	log.Info("Updating configuration")
+	err := globalConfig.v.Unmarshal(&globalConfig.configParams)
+
+	if err != nil {
+		log.Error(err, "Failed to unmarshal config file, skipping configuration update")
+		return
+	}
+
+	globalConfig.configParams.InterfacesFilterGlob = glob.MustCompile(globalConfig.configParams.InterfaceFilter)
+	log.Info(fmt.Sprintf("New configuration is %+v", globalConfig.configParams))
 }
 
 func pathExists(path string) bool {
@@ -80,80 +142,4 @@ func pathExists(path string) bool {
 		return false
 	}
 	return true
-}
-
-// This function reads current config file if it is exists.
-// If file exists it will update config values with values from it.
-// If not it will update config with default values
-// And after that it starts configuration watcher go routine
-func (c *configWatcher) Start() error {
-	ext := filepath.Ext(c.configPath)
-	if !funk.Contains(viper.SupportedExts, ext[1:]) {
-		return fmt.Errorf("file extension %s is not supported", ext)
-	}
-
-	configDir, _ := filepath.Split(c.configPath)
-	if !pathExists(configDir) {
-		return fmt.Errorf("folder %s doesn't exist, can't start configuration watcher", configDir)
-	}
-
-	c.v.SetConfigFile(c.configPath)
-	c.v.SetTypeByDefaultValue(true)
-
-	if err := c.v.ReadInConfig(); err != nil { // Find and read the config file
-		log.Info("Not able to read configuration, will update default values")
-	}
-
-	setConfig(*c.v)
-	c.watchConfigFile()
-	return nil
-}
-
-// Adapted from viper WatchConfig to match nmstate configmap watch needs
-// The main changes is that there is no need to
-// preexist config file before starting the watch
-// and it will not exit on file deletion
-func (c *configWatcher) watchConfigFile() {
-	configFile := filepath.Clean(c.configPath)
-	configDir, _ := filepath.Split(configFile)
-	realConfigFile, _ := filepath.EvalSymlinks(c.configPath)
-	newWatcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Error(err, "Failed to start fsnotify watcher")
-		return
-	}
-	newWatcher.Add(configDir)
-
-	go func() {
-		defer newWatcher.Close()
-		for {
-			select {
-			case event, ok := <-newWatcher.Events:
-				if !ok { // 'Events' channel is closed
-					return
-				}
-				currentConfigFile, _ := filepath.EvalSymlinks(c.configPath)
-				// we only care about the config file with the following cases:
-				// 1 - if the config file was modified or created
-				// 2 - if the real path to the config file changed (eg: k8s ConfigMap replacement)
-				const writeOrCreateMask = fsnotify.Write | fsnotify.Create
-				if (filepath.Clean(event.Name) == configFile &&
-					event.Op&writeOrCreateMask != 0) ||
-					(currentConfigFile != "" && currentConfigFile != realConfigFile) {
-					realConfigFile = currentConfigFile
-					err := c.v.ReadInConfig()
-					if err != nil {
-						log.Error(err, "error reading config file.\n")
-					} else {
-						setConfig(*c.v)
-					}
-				}
-			case err, ok := <-newWatcher.Errors:
-				if ok { // 'Errors' channel is not closed
-					log.Error(err, "newWatcher error\n")
-				}
-				return
-			}
-		}
-	}()
 }

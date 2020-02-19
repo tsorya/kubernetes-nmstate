@@ -57,6 +57,15 @@ func printVersion() {
 	log.Info(fmt.Sprintf("Version of operator-sdk: %v", sdkVersion.Version))
 }
 
+type myconfig struct {
+	Bla string
+}
+
+type myManager struct {
+	manager.Manager
+	cfg *myconfig
+}
+
 func main() {
 	var logType string
 	// Print V(2) logs from packages using klog
@@ -95,9 +104,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Creating global config
+	err = configurations.CreateGlobalConfig()
+	if err != nil {
+		log.Error(err, "")
+		os.Exit(1)
+	}
+
 	// Start configuration watcher
-	configWatcher := configurations.NewConfigWatcher()
-	if err := configWatcher.Start(); err != nil {
+	if err := configurations.Start(configurations.GetConfigPath(), configurations.SetConfig); err != nil {
 		log.Error(err, "Failing to start configuration watcher")
 		os.Exit(1)
 	}
@@ -112,7 +127,7 @@ func main() {
 	ctx := context.TODO()
 
 	// Create a new Cmd to provide shared dependencies and start components
-	mgr, err := manager.New(cfg, manager.Options{
+	m, err := manager.New(cfg, manager.Options{
 		Namespace:          namespace,
 		MapperProvider:     restmapper.NewDynamicRESTMapper,
 		MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
@@ -120,6 +135,11 @@ func main() {
 	if err != nil {
 		log.Error(err, "")
 		os.Exit(1)
+	}
+
+	mgr := myManager{
+		Manager: m,
+		cfg:     nil,
 	}
 
 	log.Info("Registering Components.")
