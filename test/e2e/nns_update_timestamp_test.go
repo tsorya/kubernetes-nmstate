@@ -6,6 +6,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/types"
+
+	nodecontroller "github.com/nmstate/kubernetes-nmstate/pkg/controller/node"
 )
 
 var _ = Describe("NNS LastSuccessfulUpdateTime", func() {
@@ -16,7 +18,7 @@ var _ = Describe("NNS LastSuccessfulUpdateTime", func() {
 				originalTime := nodeNetworkState(key).Status.LastSuccessfulUpdateTime
 
 				// Give enough time for the NNS to be updated (3 interval times)
-				timeout := time.Duration(5*3) * time.Second
+				timeout := time.Duration(nodecontroller.NodeRefresh*3) * time.Second
 
 				Eventually(func() time.Time {
 					updatedTime := nodeNetworkState(key).Status.LastSuccessfulUpdateTime

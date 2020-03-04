@@ -20,7 +20,33 @@ var (
 	log = logf.Log.WithName("nmstatectl")
 )
 
+//go:generate mockgen -package nmstatectl -destination nmstatectl_mock.go github.com/nmstate/kubernetes-nmstate/pkg/nmstatectl Nmstatectl
+type Nmstatectl interface {
+	Show() (string, error)
+	Commit() (string, error)
+	Rollback(cause error) error
+	Set(desiredState nmstatev1alpha1.State, timeout time.Duration) (string, error)
+}
+
 const nmstateCommand = "nmstatectl"
+
+type Helper struct {}
+
+func (h *Helper) Show() (string, error) {
+	return Show()
+}
+
+func (h *Helper) Commit() (string, error) {
+	return Commit()
+}
+
+func (h *Helper) Rollback(cause error) error {
+	return Rollback(cause)
+}
+
+func (h *Helper) Set(desiredState nmstatev1alpha1.State, timeout time.Duration) (string, error) {
+	return Set(desiredState, timeout)
+}
 
 func nmstatectlWithInput(arguments []string, input string) (string, error) {
 	cmd := exec.Command(nmstateCommand, arguments...)

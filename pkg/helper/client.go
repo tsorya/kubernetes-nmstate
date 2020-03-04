@@ -89,7 +89,7 @@ func InitializeNodeNetworkState(client client.Client, node *corev1.Node) error {
 	return nil
 }
 
-func CreateOrUpdateNodeNetworkState(client client.Client, node *corev1.Node, namespace client.ObjectKey) error {
+func CreateOrUpdateNodeNetworkState(client client.Client, node *corev1.Node, namespace client.ObjectKey, helper nmstatectl.Helper) error {
 	nnsInstance := &nmstatev1alpha1.NodeNetworkState{}
 	err := client.Get(context.TODO(), namespace, nnsInstance)
 	if err != nil {
@@ -102,8 +102,8 @@ func CreateOrUpdateNodeNetworkState(client client.Client, node *corev1.Node, nam
 	return UpdateCurrentState(client, nnsInstance)
 }
 
-func UpdateCurrentState(client client.Client, nodeNetworkState *nmstatev1alpha1.NodeNetworkState) error {
-	observedStateRaw, err := nmstatectl.Show()
+func UpdateCurrentState(client client.Client, nodeNetworkState *nmstatev1alpha1.NodeNetworkState, helper nmstatectl.Helper) error {
+	observedStateRaw, err := helper.Show()
 	if err != nil {
 		return fmt.Errorf("error running nmstatectl show: %v", err)
 	}
